@@ -1,0 +1,83 @@
+name: Fedora RPM
+
+# Start with an opt-in build while measuring runner cost and reliability.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fedora-rpm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fedora-rpm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      FEDORA_IMAGE: registry.fedoraproject.org/fedora:44
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          lfs: true
+          persist-credentials: false
+
+      - name: Make room for the C++ build and RPM payload
+        run: |
+          # These SDKs are unused on this disposable Linux runner.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet
+          df -h .
+
+      - name: Prepare Fedora image and record build inputs
+        run: |
+          mkdir -p build_rpm_ci
+          git rev-parse HEAD | tee build_rpm_ci/source-commit.txt
+          docker pull "$FEDORA_IMAGE"
+          docker image inspect "$FEDORA_IMAGE" > build_rpm_ci/container-image.json
+
+      - name: Build dependencies, application and RPM
+        run: |
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/workspace" --workdir /workspace \
+            --env CMAKE_BUILD_PARALLEL_LEVEL=2 \
+            "$FEDORA_IMAGE" bash -euxo pipefail -c '
+              dnf install -y sudo git procps-ng
+              git config --global --add safe.directory /workspace
+              ./BuildLinux.sh -u
+              rpm -qa | sort > build_rpm_ci/build-packages.txt
+              ./BuildLinux.sh -dfr
+              ./BuildLinux.sh -spfr
+            ' 2>&1 | tee build_rpm_ci/build.log
+
+      - name: Check RPM in a fresh Fedora container
+        run: |
+          docker run --rm \
+            --volume "$GITHUB_WORKSPACE:/workspace:ro" --workdir /tmp \
+            "$FEDORA_IMAGE" bash -c \
+            'bash /workspace/.github/scripts/check-fedora-rpm.sh /workspace/build/*.rpm' \
+            2>&1 | tee build_rpm_ci/package-check.log
+          (cd build && sha256sum ./*.rpm > SHA256SUMS)
+
+      - name: Upload validated RPM
+        uses: actions/upload-artifact@v6
+        with:
+          name: bambu-studio-fedora44-x86_64-rpm
+          path: |
+            build/*.rpm
+            build/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Upload build and package-check logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: bambu-studio-fedora44-x86_64-logs
+          path: build_rpm_ci/
+          if-no-files-found: warn
+          retention-days: 14
