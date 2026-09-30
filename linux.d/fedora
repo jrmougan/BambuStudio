@@ -1,7 +1,8 @@
 FOUND_GTK3=$(rpm -qa | grep -P '^gtk3' || true)
 
 FEDORA_VERSION=$(rpm -E %fedora)
-if (( FEDORA_VERSION >= 44 )); then
+# Fedora 42 moved OSMesa out of Mesa into the compatibility package.
+if (( FEDORA_VERSION >= 42 )); then
     OSMESA_DEVEL_PACKAGE=mesa-compat-libOSMesa-devel
 else
     OSMESA_DEVEL_PACKAGE=mesa-libOSMesa-devel
