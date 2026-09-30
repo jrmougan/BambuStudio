@@ -22,6 +22,11 @@ rm -rf "${RPM_ROOT}"
 mkdir -p "${RPM_ROOT}"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS,tmp}
 
 cat > "${SPEC_FILE}" <<EOF
+# These libraries are private to the launcher, not system FFmpeg providers.
+# Keep automatic requirements for their external dependencies enabled.
+%global __provides_exclude_from ^/opt/BambuStudio/.*[.]so.*$
+%global __requires_exclude ^lib(avcodec|avutil|swresample|swscale)[.]so[.].*$
+
 Name:           bambu-studio
 Version:        ${VERSION}
 Release:        1%{?dist}
